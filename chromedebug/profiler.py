@@ -16,7 +16,7 @@ def traced(func):
         if not current_profiler:
             return func(*args, **kwargs)
         with current_profiler:
-            func(*args, **kwargs)
+            return func(*args, **kwargs)
     return wrapped
 
 
