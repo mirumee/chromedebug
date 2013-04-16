@@ -14,7 +14,7 @@ setup(
     author_email='patrys@room-303.com',
     url='https://github.com/patrys/chromedebug',
     py_modules=['chromedebug'],
-    keywords=['debugger', 'chrome],
+    keywords=['debugger', 'chrome'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Programming Language :: Python',
