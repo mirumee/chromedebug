@@ -13,7 +13,7 @@ setup(
     author='Patryk Zawadzki',
     author_email='patrys@room-303.com',
     url='https://github.com/patrys/chromedebug',
-    packages=['chromedebug'],
+    packages=['chromedebug', 'chromedebug.boot'],
     keywords=['debugger', 'chrome'],
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -22,4 +22,6 @@ setup(
         'Topic :: Software Development :: Debuggers',
         'Operating System :: OS Independent'],
     install_requires=['ws4py'],
+    entry_points={
+        'console_scripts': ['chromedebug = chromedebug:main']},
     long_description=DESCRIPTION)

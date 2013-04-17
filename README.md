@@ -9,11 +9,11 @@ It's quite similar in concept to [Chrome Logger](http://craig.is/writing/chrome-
 Setting up the server:
 ----------------------
 
-Start by importing the `chromedebug` module.
+Start by running your code using the `chromedebug` script.
 It will create a new thread and open a websocket for Chrome to connect to.
 
-```python
-import chromedebug
+```
+$ chromedebug myfile.py some args
 ```
 
 Then navigate your browser (a recent release of Chrome is required) to the following url:

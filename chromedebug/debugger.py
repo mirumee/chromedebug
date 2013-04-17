@@ -11,7 +11,7 @@ class ImportLoader(object):
     def load_module(self, full_name):
         module = sys.modules[full_name]
         if module and not module in seen:
-            seen.add(module)
+            seen.add(full_name)
             thread.debugger_script_parsed(full_name)
         return module
 

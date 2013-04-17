@@ -14,9 +14,7 @@ class ServerThread(threading.Thread):
     server = None
 
     def run(self):
-        from . import debugger
         from . import server
-        debugger.attach()
         self.server = make_server(
             '', 9222, server_class=WSGIServer,
             handler_class=WebSocketWSGIRequestHandler,
