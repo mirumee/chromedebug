@@ -13,7 +13,7 @@ setup(
     author='Patryk Zawadzki',
     author_email='patrys@room-303.com',
     url='https://github.com/patrys/chromedebug',
-    py_modules=['chromedebug'],
+    packages=['chromedebug'],
     keywords=['debugger', 'chrome'],
     classifiers=[
         'Development Status :: 3 - Alpha',
