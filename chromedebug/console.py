@@ -1,6 +1,6 @@
 from functools import partial
 
-from . import debugger
+from . import thread
 from . import inspector
 
 __all__ = ['debug', 'error', 'log', 'warn']
@@ -8,7 +8,7 @@ __all__ = ['debug', 'error', 'log', 'warn']
 
 def _log(level, *args):
     params = map(inspector.encode, args)
-    debugger.console_log(
+    thread.console_log(
         {'level': level, 'type': 'log', 'parameters': params})
 
 debug = partial(_log, 'debug')

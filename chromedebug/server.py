@@ -2,12 +2,14 @@ import json
 
 from ws4py.websocket import WebSocket
 
+from . import debugger
 from . import inspector
 from . import profiler
 
 
 class DebuggerWebSocket(WebSocket):
     console_enabled = False
+    debugger_enabled = False
     profiling_enabled = False
 
     def __init__(self, *args, **kwargs):
@@ -22,9 +24,15 @@ class DebuggerWebSocket(WebSocket):
             self.console_flush()
         elif method == 'Console.disable':
             self.console_enabled = False
-        elif method == 'Runtime.getProperties':
-            object_id = params.get('objectId')
-            resp['result'] = {'result': inspector.get_properties(object_id)}
+        elif method == 'Debugger.enable':
+            self.debugger_enabled = True
+            for script in debugger.seen:
+                self.debugger_script_parsed(script)
+        elif method == 'Debugger.disable':
+            self.debugger_enabled = False
+        elif method == 'Debugger.getScriptSource':
+            content = debugger.get_script_source(params.get('scriptId'))
+            resp['result'] = {'scriptSource': content}
         elif method == 'Profiler.start':
             profiler.start_profiling()
             self.send_event('Profiler.setRecordingProfile', isProfiling=True)
@@ -32,10 +40,23 @@ class DebuggerWebSocket(WebSocket):
             header = profiler.stop_profiling()
             self.send_event('Profiler.addProfileHeader', header=header)
             self.send_event('Profiler.setRecordingProfile', isProfiling=False)
+        elif method == 'Profiler.getProfileHeaders':
+            headers = profiler.get_profile_headers()
+            resp['result'] = {'headers': headers}
         elif method == 'Profiler.getCPUProfile':
             profile = profiler.get_profile(params.get('uid'))
             resp['result'] = {'profile': profile}
+        elif method == 'Runtime.getProperties':
+            object_id = params.get('objectId')
+            resp['result'] = {'result': inspector.get_properties(object_id)}
         return resp
+
+    def debugger_script_parsed(self, name):
+        if not self.debugger_enabled:
+            return
+        self.send_event('Debugger.scriptParsed', scriptId=name,
+                        url=name, startLine=0, startColumn=0,
+                        endLine=0, endColumn=0)
 
     def console_log(self, message):
         self.console_messages.append(message)

@@ -1,5 +1,5 @@
-from . import debugger
+from . import thread
 
 __all__ = ['console', 'profiler']
 
-debugger.start()
+thread.start()

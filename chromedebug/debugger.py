@@ -1,46 +1,53 @@
+import inspect
 import sys
-import threading
-from wsgiref.simple_server import make_server
 
-from ws4py.server.wsgirefserver import WSGIServer, WebSocketWSGIRequestHandler
-from ws4py.server.wsgiutils import WebSocketWSGIApplication
+from . import thread
 
-from . import server
-
-__all__ = ['debugger', 'start']
+seen = set()
 
 
-class ServerThread(threading.Thread):
-    daemon = True
-    name = 'ChromeDebug'
-    server = None
+class ImportLoader(object):
 
-    def run(self):
-        self.server = make_server(
-            '', 9222, server_class=WSGIServer,
-            handler_class=WebSocketWSGIRequestHandler,
-            app=WebSocketWSGIApplication(handler_cls=server.DebuggerWebSocket))
-        sys.stderr.write(
-            'Navigate to chrome://devtools/devtools.html?ws=0.0.0.0:9222\n')
-        self.server.initialize_websockets_manager()
-        self.server.serve_forever()
-
-debugger = ServerThread()
+    def load_module(self, full_name):
+        module = sys.modules[full_name]
+        if module and not module in seen:
+            seen.add(module)
+            thread.debugger_script_parsed(full_name)
+        return module
 
 
-def start():
-    debugger.start()
+class ImportFinder(object):
+
+    touched = None
+
+    def __init__(self):
+        self.touched = set()
+
+    def find_module(self, full_name, path=None):
+        if full_name in self.touched:
+            return
+        self.touched.add(full_name)
+        try:
+            __import__(full_name)
+        finally:
+            self.touched.remove(full_name)
+        return ImportLoader()
 
 
-def console_log(message):
-    if not debugger.server:
-        return
-    for ws in debugger.server.manager:
-        ws.console_log(message)
+def get_script_source(scriptId):
+    module = sys.modules.get(scriptId)
+    if not module:
+        return '"Module not found"'
+    try:
+        return inspect.getsource(module)
+    except IOError:
+        return '"Source not available"'
+    except TypeError:
+        return '"Built-in module"'
 
 
-def timeline_log(message):
-    if not debugger.server:
-        return
-    for ws in debugger.server.manager:
-        ws.timeline_log(message)
+def attach():
+    sys.meta_path.insert(0, ImportFinder())
+    for name, module in sys.modules.iteritems():
+        if module:
+            seen.add(name)
