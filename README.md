@@ -23,8 +23,8 @@ chrome://devtools/devtools.html?ws=0.0.0.0:9222
 ```
 
 
-The `console` module
---------------------------
+The console
+-----------
 
 The `console` module offers an API similar to the one found in your browser:
 
@@ -40,25 +40,16 @@ Avoid string interpolation and let the library serialize your objects instead.
 You can pass almost any object and then inspect its contents in the browser.
 
 
-The `profiler` module
----------------------
+The debugger
+------------
 
-The `profiler` module allows you to decorate code and later remotely enable profiling at run-time:
+This should Just Work™.
 
-```python
-from chromedebug import profiler
 
-@profiler.traced
-def a_fine_function():
-    # do something
+The profiler
+------------
 
-def another_fine_piece_of_code():
-    with profiler.tracer():
-        # do something else
-```
-
-Once you add the traces you can enable profiling in your browser by selecting the *Profiles* tab and then choosing
-*Collect JavaScript CPU Profile*. Yes, it does say *JavaScript* although it will give you results for Python.
+This should Just Work™. Yes, it does say *JavaScript* although it will happily profile your Python code.
 
 
 Alpha quality
