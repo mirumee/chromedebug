@@ -60,6 +60,7 @@ def encode(obj, group=None, preview=True):
         typ = 'object'
     value = (
         None if typ == 'object' else
+        obj if typ == 'boolean' else
         repr(obj) if typ != 'string' else obj)
     description = repr(obj) if typ != 'string' else obj
     if len(description) > 50:
