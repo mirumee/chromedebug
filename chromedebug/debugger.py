@@ -38,7 +38,10 @@ def get_call_info(frame):
 
 class Debugger(object):
 
+    active = True
     current_frame = None
+    step_mode = None
+    step_level = 0
     stop_module = None
     stop_lineno = None
 
@@ -49,6 +52,8 @@ class Debugger(object):
         self.fncache = {}
 
     def trace_dispatch(self, frame, event, arg):
+        if self.skip and self.is_skipped(frame):
+            return
         if event == 'line':
             return self.dispatch_line(frame)
         if event == 'call':
@@ -67,13 +72,12 @@ class Debugger(object):
 
     def dispatch_line(self, frame):
         if self.stop_here(frame) or self.break_here(frame):
-            self.user_line(frame)
+            self.pause(frame)
         return self.trace_dispatch
 
     def dispatch_call(self, frame, arg):
-        if (self.skip and
-                self.is_skipped(frame)):
-            return
+        if self.step_mode in ['over', 'out']:
+            self.step_level += 1
         call_info = get_call_info(frame)
         if not profiler:  # terminating
             return
@@ -81,6 +85,8 @@ class Debugger(object):
         return self.trace_dispatch
 
     def dispatch_return(self, frame, arg):
+        if self.step_mode in ['over', 'out']:
+            self.step_level -= 1
         profiler.profile_return()
         return self.trace_dispatch
 
@@ -99,8 +105,12 @@ class Debugger(object):
         return False
 
     def stop_here(self, frame):
-        if self.stop_module:
-            print self.stop_module, frame.f_code.co_name
+        if self.step_mode == 'into':
+            return True
+        if self.step_mode == 'over' and self.step_level <= 0:
+            return True
+        if self.step_mode == 'out' and self.step_level < 0:
+            return True
         mod = inspect.getmodule(frame)
         if not mod:
             return False
@@ -172,6 +182,8 @@ class Debugger(object):
             return
         if threading.current_thread().name == 'ChromeDebug':
             return
+        if not self.active:
+            return
         with debug_lock:
             if self.current_frame:
                 return
@@ -180,15 +192,11 @@ class Debugger(object):
         info = self.get_pause_info()
         thread.debugger_paused(info)
         self.resume.wait()
-        self.set_continue()
         with debug_lock:
             self.current_frame = None
 
-    def user_line(self, frame):
-        """This method is called when we stop or break at this line."""
-        self.pause(frame)
-
     def set_continue(self):
+        self.step_mode = None
         self.stop_module = None
         self.stop_lineno = None
 
@@ -196,8 +204,18 @@ class Debugger(object):
         self.breaks[module].add(lineno)
 
     def continue_to(self, module, lineno):
+        self.step_mode = None
         self.stop_module = module
         self.stop_lineno = lineno
+
+    def set_step(self, mode):
+        self.step_mode = mode
+        self.step_level = 0
+        self.stop_module = None
+        self.stop_lineno = None
+
+    def set_active(self, active):
+        self.active = active
 
     def clear_break(self, module, lineno):
         if module in self.breaks:
@@ -306,6 +324,7 @@ def resume():
     if not debugger:
         return
     thread.debugger_resumed()
+    debugger.set_continue()
     debugger.resume.set()
 
 
@@ -314,4 +333,34 @@ def continue_to(url, lineno):
         return
     thread.debugger_resumed()
     debugger.continue_to(url, lineno)
+    debugger.resume.set()
+
+
+def set_active(active):
+    if not debugger:
+        return
+    debugger.set_active(active)
+
+
+def step_into():
+    if not debugger:
+        return
+    thread.debugger_resumed()
+    debugger.set_step('into')
+    debugger.resume.set()
+
+
+def step_over():
+    if not debugger:
+        return
+    thread.debugger_resumed()
+    debugger.set_step('over')
+    debugger.resume.set()
+
+
+def step_out():
+    if not debugger:
+        return
+    thread.debugger_resumed()
+    debugger.set_step('out')
     debugger.resume.set()

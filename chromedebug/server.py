@@ -29,6 +29,8 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Console.enable':
             self.console_enabled = True
             self.console_flush()
+        elif method == 'Debugger.canSetScriptSource':
+            resp['result'] = False
         elif method == 'Debugger.continueToLocation':
             location = params.get('location', {})
             debugger.continue_to(
@@ -57,6 +59,14 @@ class DebuggerWebSocket(WebSocket):
             breakpoint = debugger.add_breakpoint(params.get('url'),
                                                  params.get('lineNumber'))
             resp['result'] = breakpoint
+        elif method == 'Debugger.setBreakpointsActive':
+            debugger.set_active(params.get('active'))
+        elif method == 'Debugger.stepInto':
+            debugger.step_into()
+        elif method == 'Debugger.stepOver':
+            debugger.step_over()
+        elif method == 'Debugger.stepOut':
+            debugger.step_out()
         elif method == 'Debugger.resume':
             debugger.resume()
         elif method == 'Debugger.setOverlayMessage':
