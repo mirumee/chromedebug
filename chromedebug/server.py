@@ -1,4 +1,7 @@
+# coding: utf-8
+
 import json
+import sys
 
 from ws4py.websocket import WebSocket
 
@@ -19,20 +22,47 @@ class DebuggerWebSocket(WebSocket):
 
     def handle_method(self, method, params):
         resp = {}
-        if method == 'Console.enable':
+        if not debugger or not inspector or not profiler:  # terminating
+            return
+        if method == 'Console.disable':
+            self.console_enabled = False
+        elif method == 'Console.enable':
             self.console_enabled = True
             self.console_flush()
-        elif method == 'Console.disable':
-            self.console_enabled = False
+        elif method == 'Debugger.continueToLocation':
+            location = params.get('location', {})
+            debugger.continue_to(
+                location.get('scriptId'),
+                location.get('lineNumber'))
+        elif method == 'Debugger.disable':
+            self.debugger_enabled = False
         elif method == 'Debugger.enable':
             self.debugger_enabled = True
             for script in debugger.seen:
                 self.debugger_script_parsed(script)
-        elif method == 'Debugger.disable':
-            self.debugger_enabled = False
+            info = debugger.get_state()
+            if info:
+                self.debugger_paused(info)
+        elif method == 'Debugger.evaluateOnCallFrame':
+            result = debugger.evaluate_on_frame(
+                params.get('callFrameId'), params.get('expression'),
+                group=params.get('objectGroup'))
+            resp['result'] = result
         elif method == 'Debugger.getScriptSource':
             content = debugger.get_script_source(params.get('scriptId'))
             resp['result'] = {'scriptSource': content}
+        elif method == 'Debugger.removeBreakpoint':
+            debugger.remove_breakpoint(params.get('breakpointId'))
+        elif method == 'Debugger.setBreakpointByUrl':
+            breakpoint = debugger.add_breakpoint(params.get('url'),
+                                                 params.get('lineNumber'))
+            resp['result'] = breakpoint
+        elif method == 'Debugger.resume':
+            debugger.resume()
+        elif method == 'Debugger.setOverlayMessage':
+            msg = params.get('message')
+            if msg:
+                sys.stderr.write(u'«%s»\n' % (msg,))
         elif method == 'Profiler.start':
             profiler.start_profiling()
             self.send_event('Profiler.setRecordingProfile', isProfiling=True)
@@ -49,7 +79,19 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Runtime.getProperties':
             object_id = params.get('objectId')
             resp['result'] = {'result': inspector.get_properties(object_id)}
+        elif method == 'Runtime.releaseObjectGroup':
+            inspector.release_group(params.get('objectGroup'))
         return resp
+
+    def debugger_paused(self, stack):
+        if not debugger:  # terminating
+            return
+        if not self.debugger_enabled:
+            debugger.resume()
+        self.send_event('Debugger.paused', **stack)
+
+    def debugger_resumed(self):
+        self.send_event('Debugger.resumed')
 
     def debugger_script_parsed(self, name):
         if not self.debugger_enabled:

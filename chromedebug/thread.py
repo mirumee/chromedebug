@@ -5,7 +5,7 @@ from wsgiref.simple_server import make_server
 from ws4py.server.wsgirefserver import WSGIServer, WebSocketWSGIRequestHandler
 from ws4py.server.wsgiutils import WebSocketWSGIApplication
 
-__all__ = ['debugger', 'start']
+__all__ = ['start']
 
 
 class ServerThread(threading.Thread):
@@ -24,29 +24,43 @@ class ServerThread(threading.Thread):
         self.server.initialize_websockets_manager()
         self.server.serve_forever()
 
-debugger = ServerThread()
+thread = ServerThread()
 
 
 def start():
-    debugger.start()
+    thread.start()
 
 
 def console_log(message):
-    if not debugger.server:
+    if not thread.server:
         return
-    for ws in debugger.server.manager:
+    for ws in thread.server.manager:
         ws.console_log(message)
 
 
 def timeline_log(message):
-    if not debugger.server:
+    if not thread.server:
         return
-    for ws in debugger.server.manager:
+    for ws in thread.server.manager:
         ws.timeline_log(message)
 
 
-def debugger_script_parsed(name):
-    if not debugger.server:
+def debugger_paused(stack):
+    if not thread.server:
         return
-    for ws in debugger.server.manager:
+    for ws in thread.server.manager:
+        ws.debugger_paused(stack)
+
+
+def debugger_resumed():
+    if not thread.server:
+        return
+    for ws in thread.server.manager:
+        ws.debugger_resumed()
+
+
+def debugger_script_parsed(name):
+    if not thread.server:
+        return
+    for ws in thread.server.manager:
         ws.debugger_script_parsed(name)

@@ -1,35 +1,10 @@
-from collections import namedtuple
-import contextlib
-from functools import wraps
 import inspect
-import sys
 import time
 
 
 _uid = 0
 profilers = []
 current_profiler = None
-
-CallInfo = namedtuple('CallInfo', ['function', 'module', 'lineno'])
-
-
-def traced(func):
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-        if not current_profiler:
-            return func(*args, **kwargs)
-        with current_profiler:
-            return func(*args, **kwargs)
-    return wrapped
-
-
-@contextlib.contextmanager
-def tracer():
-    if current_profiler:
-        with current_profiler:
-            yield
-    else:
-        yield
 
 
 class Profiler(object):
@@ -41,19 +16,14 @@ class Profiler(object):
         self.title = title
         self.children = {}
         self.samples = []
-        self.start_time = time.time()
+        self.start_time = _get_timestamp()
         self.duration = None
         self.path = []
         self._id = 1
 
-    def __enter__(self):
-        self._old_trace = sys.gettrace()
-        sys.settrace(self.trace)
-
-    def __exit__(self, ext_type, exc_value, exc_tb):
-        sys.settrace(self._old_trace)
-
     def _is_own_frame(self, frame):
+        if not inspect:  # terminating
+            return True
         filename = inspect.getsourcefile(frame)
         # skip self
         filename_base = filename.rsplit('.', 1)[0]
@@ -73,10 +43,10 @@ class Profiler(object):
         tracer.trace_call()
         self.path.append(tracer)
 
-    def trace_return(self, frame, event, arg):
+    def trace_return(self):
         if self.path:
             self.path[-1].trace_return()
-        self.path.pop()
+            self.path.pop()
 
     def generate_id(self):
         self._id += 1
@@ -84,7 +54,7 @@ class Profiler(object):
 
     def get_profile(self):
         if not self.duration:
-            self.duration = (time.time() - self.start_time) * 1000
+            self.duration = _get_timestamp() - self.start_time
         return {
             'head': {
                 'functionName': '(root)',
@@ -105,32 +75,6 @@ class Profiler(object):
 
     def get_children_duration(self):
         return sum(c.total_time for c in self.children.values())
-
-    def handle_return(self, frame, event, arg):
-        if event == 'return':
-            self.trace_return(frame, event, arg)
-
-    def _get_call_info(self, frame):
-            info = inspect.getframeinfo(frame)
-            values = inspect.getargvalues(frame)
-            function = info.function
-            if values.args and values.args[0] == 'self':
-                klass = type(values.locals[values.args[0]])
-                function = '%s.%s' % (klass.__name__, function)
-            elif function == '__new__' and values.args:
-                klass = values.locals[values.args[0]]
-                if isinstance(klass, type):
-                    function = '%s.%s' % (klass.__name__, function)
-            module = inspect.getmodule(frame).__name__
-            return CallInfo(function, module, info.lineno)
-
-    def trace(self, frame, event, arg):
-        if event == 'call':
-            if self._is_own_frame(frame):
-                return
-            call_info = self._get_call_info(frame)
-            self.trace_call(call_info)
-            return self.handle_return
 
 
 class Trace(object):
@@ -168,10 +112,10 @@ class Trace(object):
         return self.children[call_info]
 
     def trace_call(self):
-        self.start_time = time.time()
+        self.start_time = _get_timestamp()
 
     def trace_return(self):
-        self.total_time += (time.time() - self.start_time) * 1000
+        self.total_time += _get_timestamp() - self.start_time
 
 
 def start_profiling(name=None):
@@ -189,6 +133,18 @@ def stop_profiling():
     return header
 
 
+def profile_call(call_info):
+    if not current_profiler:
+        return
+    current_profiler.trace_call(call_info)
+
+
+def profile_return():
+    if not current_profiler:
+        return
+    current_profiler.trace_return()
+
+
 def get_profile(uid):
     ps = [p for p in profilers if p.uid == uid]
     if ps:
@@ -200,4 +156,6 @@ def get_profile_headers():
 
 
 def _get_timestamp():
+    if not time:  # terminating
+        return 0
     return time.time() * 1000.0
