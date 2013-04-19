@@ -22,6 +22,8 @@ Then navigate your browser (a recent release of Chrome is required) to the follo
 chrome://devtools/devtools.html?ws=0.0.0.0:9222
 ```
 
+If Chrome claims that the URL is invalid, enable and disable the DevTools panel (F12) and then it will work.
+
 
 The console
 -----------
