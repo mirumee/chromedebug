@@ -17,7 +17,7 @@ class DebuggerWebSocket(WebSocket):
     def __init__(self, *args, **kwargs):
         super(DebuggerWebSocket, self).__init__(*args, **kwargs)
         self.console_messages = []
-        self.console_cache = set()
+        self.console_cache = []
         self._call_stack = []
 
     def handle_method(self, method, params):
@@ -53,6 +53,8 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Debugger.getScriptSource':
             content = debugger.get_script_source(params.get('scriptId'))
             resp['result'] = {'scriptSource': content}
+        elif method == 'Debugger.pause':
+            debugger.pause()
         elif method == 'Debugger.removeBreakpoint':
             debugger.remove_breakpoint(params.get('breakpointId'))
         elif method == 'Debugger.setBreakpointByUrl':
@@ -110,7 +112,7 @@ class DebuggerWebSocket(WebSocket):
 
     def console_log(self, level, typ, params, stack_trace):
         # hold a reference
-        self.console_cache += set(params)
+        self.console_cache.append(params)
         params = map(inspector.encode, params)
         message = {
             'level': level,

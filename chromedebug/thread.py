@@ -31,11 +31,12 @@ def start():
     thread.start()
 
 
-def console_log(message):
+def console_log(level, typ, params, stack_trace):
     if not thread.server:
         return
     for ws in thread.server.manager:
-        ws.console_log(message)
+        ws.console_log(level=level, typ=typ, params=params,
+                       stack_trace=stack_trace)
 
 
 def timeline_log(message):

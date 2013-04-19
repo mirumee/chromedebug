@@ -1,6 +1,7 @@
 import atexit
 from collections import defaultdict, namedtuple
 import fnmatch
+from functools import wraps
 import inspect
 import sys
 import threading
@@ -66,10 +67,11 @@ class Debugger(object):
         if not self.step_mode:
             if not self.breakpoints_active:
                 return
-            call_info = get_call_info(frame)
-            if call_info.module in self.breaks:
+        call_info = get_call_info(frame)
+        if not self.step_mode:
+            if not call_info.module in self.breaks:
                 return
-        if self.stop_here(frame) or self.break_here(frame):
+        if self.stop_here(call_info) or self.break_here(call_info):
             self.pause(frame)
         return self.trace_dispatch
 
@@ -91,6 +93,8 @@ class Debugger(object):
     def dispatch_return(self, frame, arg):
         if self.step_mode in ['over', 'out']:
             self.step_level -= 1
+        if self.step_mode == 'out' and self.step_level < 0:
+            self.pause(frame)
         for profiler in self.profilers:
             profiler.trace_return()
 
@@ -107,33 +111,22 @@ class Debugger(object):
             frame = frame.f_back
         return False
 
-    def stop_here(self, frame):
+    def stop_here(self, call_info):
         if self.step_mode == 'into':
             return True
         if self.step_mode == 'over' and self.step_level <= 0:
             return True
         if self.step_mode == 'out' and self.step_level < 0:
             return True
-        mod = inspect.getmodule(frame)
-        if not mod:
-            return False
-        module = mod.__name__
-        if module == self.stop_module:
-            if frame.f_lineno >= self.stop_lineno:
+        if call_info.module == self.stop_module:
+            if call_info.lineno >= self.stop_lineno:
                 return True
         return False
 
-    def break_here(self, frame):
-        if not inspect:
+    def break_here(self, call_info):
+        if not call_info.module in self.breaks:
             return False
-        mod = inspect.getmodule(frame)
-        if not mod:
-            return False
-        module = mod.__name__
-        if not module in self.breaks:
-            return False
-        lineno = frame.f_lineno
-        if not lineno in self.breaks[module]:
+        if not call_info.lineno in self.breaks[call_info.module]:
             return False
         return True
 
@@ -239,13 +232,25 @@ class Debugger(object):
         if not self.breaks[module]:
             del self.breaks[module]
 
-    def set_trace(self):
-        self.source_frame = sys._getframe(3)
+    def attach(self):
+        try:
+            self.source_frame = sys._getframe(3)
+        except ValueError:
+            self.source_frame = None
         sys.settrace(self.trace_dispatch)
 
-    def stop_trace(self):
+    def detach(self):
         sys.settrace(None)
         self.source_frame = None
+
+    def set_trace(self):
+        frame = sys._getframe().f_back
+        while frame:
+            frame.f_trace = debugger.trace_dispatch
+            frame = frame.f_back
+        if not sys.gettrace():
+            self.attach()
+        self.set_step('into')
 
 
 def get_script_source(scriptId):
@@ -263,17 +268,40 @@ debugger = Debugger(skip=['chromedebug', 'chromedebug.*', 'ws4py.*'])
 
 
 def attach():
-    debugger and debugger.set_trace()
+    debugger.attach()
 
 
 def detach():
-    debugger and debugger.stop_trace()
+    debugger.detach()
 atexit.register(detach)
 
 
+def trace(func):
+    @wraps(func)
+    def inner(*args, **kwargs):
+        attach()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            detach()
+
+    return inner
+
+
+def exempt(func):
+    @wraps(func)
+    def inner(*args, **kwargs):
+        old_trace = sys.gettrace()
+        sys.settrace(None)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            sys.settrace(old_trace)
+
+    return inner
+
+
 def add_breakpoint(url, lineno):
-    if not debugger:
-        return
     debugger.set_break(url, lineno + 1)
     return {
         'breakpointId': '%s:%s' % (url, lineno),
@@ -281,8 +309,6 @@ def add_breakpoint(url, lineno):
 
 
 def evaluate_on_frame(frame_id, expression):
-    if not debugger:
-        return
     try:
         obj = debugger.evaluate_on_frame(frame_id, expression)
         return {'result': inspector.encode(obj)}
@@ -293,43 +319,49 @@ def evaluate_on_frame(frame_id, expression):
 
 
 def get_state():
-    return debugger and debugger.get_pause_info()
+    return debugger.get_pause_info()
+
+
+def pause():
+    debugger.set_step('into')
 
 
 def remove_breakpoint(break_id):
-    if not debugger:
-        return
     module, lineno = break_id.split(':', 1)
     debugger.clear_break(module, int(lineno) + 1)
 
 
 def resume():
-    debugger and debugger.set_continue()
+    debugger.set_continue()
 
 
 def continue_to(url, lineno):
-    debugger and debugger.continue_to(url, lineno)
+    debugger.continue_to(url, lineno)
 
 
 def set_breakpoints_active(active):
-    debugger and debugger.set_breakpoints_active(active)
+    debugger.set_breakpoints_active(active)
 
 
 def attach_profiler(profiler):
-    debugger and debugger.attach_profiler(profiler)
+    debugger.attach_profiler(profiler)
 
 
 def detach_profiler(profiler):
-    debugger and debugger.detach_profiler(profiler)
+    debugger.detach_profiler(profiler)
 
 
 def step_into():
-    debugger and debugger.set_step('into')
+    debugger.set_step('into')
 
 
 def step_over():
-    debugger and debugger.set_step('over')
+    debugger.set_step('over')
 
 
 def step_out():
-    debugger and debugger.set_step('out')
+    debugger.set_step('out')
+
+
+def set_trace():
+    debugger.set_trace()
