@@ -57,3 +57,5 @@ Alpha quality
 
 Please do not use this anywhere near production environments. This is a proof of concept.
 Current code hardly ever frees memory and needs lots of refactoring and probably a better API.
+
+**Warning:** Current implementation uses pure Python code which means it's *terribly slow*.
