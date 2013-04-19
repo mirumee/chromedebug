@@ -3,7 +3,6 @@ import sys
 
 from . import debugger
 from . import thread
-from . import inspector
 
 __all__ = ['debug', 'error', 'log', 'warn']
 
@@ -23,12 +22,8 @@ def _get_trace():
 
 
 def _log(level, *args):
-    params = map(inspector.encode, args)
-    thread.console_log({
-        'level': level,
-        'type': 'log',
-        'parameters': params,
-        'stackTrace': _get_trace()})
+    thread.console_log(level=level, typ='log', params=args,
+                       stack_trace=_get_trace())
 
 debug = partial(_log, 'debug')
 error = partial(_log, 'error')

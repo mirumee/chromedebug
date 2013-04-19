@@ -1,6 +1,8 @@
 import inspect
 import time
 
+from . import debugger
+
 
 _uid = 0
 profilers = []
@@ -79,6 +81,8 @@ class Profiler(object):
 
 class Trace(object):
     children = None
+    in_call = False
+    num_calls = 0
 
     def __init__(self, call_info, profiler):
         self.call_info = call_info
@@ -88,13 +92,16 @@ class Trace(object):
         self.id = profiler.generate_id()
 
     def encode(self):
+        function = self.call_info.function
+        if self.in_call:
+            function += ' (did not return)'
         return {
-            'functionName': self.call_info.function,
+            'functionName': function,
             'url': self.call_info.module,
             'lineNumber': self.call_info.lineno,
             'totalTime': self.total_time,
             'selfTime': self.total_time - self.get_children_duration(),
-            'numberOfCalls': 0,
+            'numberOfCalls': self.num_calls,
             'visible': True,
             'callUID': id(self),
             'children': [c.encode() for c in self.children.values()],
@@ -112,9 +119,12 @@ class Trace(object):
         return self.children[call_info]
 
     def trace_call(self):
+        self.in_call = True
+        self.num_calls += 1
         self.start_time = _get_timestamp()
 
     def trace_return(self):
+        self.in_call = False
         self.total_time += _get_timestamp() - self.start_time
 
 
@@ -124,25 +134,15 @@ def start_profiling(name=None):
     global current_profiler
     current_profiler = Profiler(name)
     profilers.append(current_profiler)
+    debugger.attach_profiler(current_profiler)
 
 
 def stop_profiling():
     global current_profiler
+    debugger.detach_profiler(current_profiler)
     header = current_profiler.get_header()
     current_profiler = None
     return header
-
-
-def profile_call(call_info):
-    if not current_profiler:
-        return
-    current_profiler.trace_call(call_info)
-
-
-def profile_return():
-    if not current_profiler:
-        return
-    current_profiler.trace_return()
 
 
 def get_profile(uid):

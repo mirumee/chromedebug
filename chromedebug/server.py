@@ -1,5 +1,3 @@
-# coding: utf-8
-
 import json
 import sys
 
@@ -11,6 +9,7 @@ from . import profiler
 
 
 class DebuggerWebSocket(WebSocket):
+    console_cache = None
     console_enabled = False
     debugger_enabled = False
     profiling_enabled = False
@@ -18,6 +17,7 @@ class DebuggerWebSocket(WebSocket):
     def __init__(self, *args, **kwargs):
         super(DebuggerWebSocket, self).__init__(*args, **kwargs)
         self.console_messages = []
+        self.console_cache = set()
         self._call_stack = []
 
     def handle_method(self, method, params):
@@ -40,15 +40,15 @@ class DebuggerWebSocket(WebSocket):
             self.debugger_enabled = False
         elif method == 'Debugger.enable':
             self.debugger_enabled = True
-            for script in debugger.seen:
-                self.debugger_script_parsed(script)
+            for name, module in sys.modules.iteritems():
+                if module:
+                    self.debugger_script_parsed(name)
             info = debugger.get_state()
             if info:
                 self.debugger_paused(info)
         elif method == 'Debugger.evaluateOnCallFrame':
             result = debugger.evaluate_on_frame(
-                params.get('callFrameId'), params.get('expression'),
-                group=params.get('objectGroup'))
+                params.get('callFrameId'), params.get('expression'))
             resp['result'] = result
         elif method == 'Debugger.getScriptSource':
             content = debugger.get_script_source(params.get('scriptId'))
@@ -72,7 +72,7 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Debugger.setOverlayMessage':
             msg = params.get('message')
             if msg:
-                sys.stderr.write(u'«%s»\n' % (msg,))
+                sys.stderr.write('<< %s >>\n' % (msg,))
         elif method == 'Profiler.start':
             profiler.start_profiling()
             self.send_event('Profiler.setRecordingProfile', isProfiling=True)
@@ -89,8 +89,6 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Runtime.getProperties':
             object_id = params.get('objectId')
             resp['result'] = {'result': inspector.get_properties(object_id)}
-        elif method == 'Runtime.releaseObjectGroup':
-            inspector.release_group(params.get('objectGroup'))
         return resp
 
     def debugger_paused(self, stack):
@@ -110,7 +108,15 @@ class DebuggerWebSocket(WebSocket):
                         url=name, startLine=0, startColumn=0,
                         endLine=0, endColumn=0)
 
-    def console_log(self, message):
+    def console_log(self, level, typ, params, stack_trace):
+        # hold a reference
+        self.console_cache += set(params)
+        params = map(inspector.encode, params)
+        message = {
+            'level': level,
+            'type': typ,
+            'parameters': params,
+            'stackTrace': stack_trace}
         self.console_messages.append(message)
         self.console_flush()
 

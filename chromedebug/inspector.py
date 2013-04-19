@@ -1,7 +1,6 @@
-# coding: utf-8
-
 from collections import defaultdict
 import types
+import weakref
 
 
 properties = {}
@@ -12,36 +11,50 @@ def inspect(obj):
     if isinstance(obj, dict):
         return obj.iteritems()
     if hasattr(obj, '__dict__'):
-        if hasattr(obj, '__getstate__'):
-            return inspect(obj.__getstate__())
+        if not isinstance(obj, type):
+            if hasattr(obj, '__getstate__'):
+                return inspect(obj.__getstate__())
         return obj.__dict__.iteritems()
     if hasattr(obj, '__slots__'):
         return ((k, getattr(obj, k)) for k in obj.__slots__)
     return []
 
 
-def get_properties(object_id):
-    return properties.get(object_id, [])
-
-
-def save_properties(obj, group):
-    object_id = str(id(obj))
-    if object_id in properties:
-        return object_id
+def extract_properties(obj):
     props = []
     for k, v in inspect(obj):
         props.append(
-            {'name': k, 'value': encode(v, group=group),
+            {'name': k, 'value': encode(v),
              'configurable': False, 'enumerable': True, 'wasThrown': False,
              'writable': False})
-    if props:
-        properties[object_id] = props
-        if group:
-            groups[group].add(object_id)
-        return object_id
+    return props
 
 
-def encode(obj, group=None, preview=True):
+def get_properties(object_id):
+    try:
+        object_id = int(object_id)
+        obj = properties[object_id]
+    except Exception:
+        return None
+    if isinstance(obj, weakref.ref):
+        obj = obj()
+        return extract_properties(obj)
+    return obj
+
+
+def save_properties(obj):
+    object_id = id(obj)
+    if object_id in properties:
+        return str(object_id)
+    try:
+        data = weakref.ref(obj)
+    except:
+        data = extract_properties(obj)
+    properties[object_id] = data
+    return str(object_id)
+
+
+def encode(obj, preview=True):
     klass = type(obj).__name__
     if isinstance(obj, bool):
         typ = 'boolean'
@@ -64,12 +77,12 @@ def encode(obj, group=None, preview=True):
         repr(obj) if typ != 'string' else obj)
     description = repr(obj) if typ != 'string' else obj
     if len(description) > 50:
-        description = description[:49] + u'…'
+        description = description[:49] + '[...]'
     data = {'className': klass, 'type': typ, 'value': value}
     if preview:
         data['description'] = description
     if typ == 'object' and not isinstance(obj, types.ModuleType):
-        object_id = save_properties(obj, group=group)
+        object_id = save_properties(obj)
         if object_id:
             data['objectId'] = object_id
     return data

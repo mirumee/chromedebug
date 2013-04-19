@@ -6,7 +6,6 @@ import sys
 import threading
 
 from . import inspector
-from . import profiler
 from . import thread
 
 seen = set()
@@ -38,7 +37,8 @@ def get_call_info(frame):
 
 class Debugger(object):
 
-    active = True
+    breakpoints_active = True
+    profilers = None
     current_frame = None
     step_mode = None
     step_level = 0
@@ -46,6 +46,7 @@ class Debugger(object):
     stop_lineno = None
 
     def __init__(self, skip=None):
+        self.profilers = set()
         self.resume = threading.Event()
         self.skip = set(skip) if skip else None
         self.breaks = defaultdict(set)
@@ -60,44 +61,46 @@ class Debugger(object):
             return self.dispatch_call(frame, arg)
         if event == 'return':
             return self.dispatch_return(frame, arg)
-        if event == 'exception':
-            return self.dispatch_exception(frame, arg)
-        if event == 'c_call':
-            return self.trace_dispatch
-        if event == 'c_exception':
-            return self.trace_dispatch
-        if event == 'c_return':
-            return self.trace_dispatch
-        return self.trace_dispatch
 
     def dispatch_line(self, frame):
+        if not self.step_mode:
+            if not self.breakpoints_active:
+                return
+            call_info = get_call_info(frame)
+            if call_info.module in self.breaks:
+                return
         if self.stop_here(frame) or self.break_here(frame):
             self.pause(frame)
         return self.trace_dispatch
 
     def dispatch_call(self, frame, arg):
+        call_info = get_call_info(frame)
+        if not self.profilers:
+            if not self.step_mode:
+                if not self.breakpoints_active:
+                    return
+                call_info = get_call_info(frame)
+                if call_info.module in self.breaks:
+                    return
         if self.step_mode in ['over', 'out']:
             self.step_level += 1
-        call_info = get_call_info(frame)
-        if not profiler:  # terminating
-            return
-        profiler.profile_call(call_info)
+        for profiler in self.profilers:
+            profiler.trace_call(call_info)
         return self.trace_dispatch
 
     def dispatch_return(self, frame, arg):
         if self.step_mode in ['over', 'out']:
             self.step_level -= 1
-        profiler.profile_return()
-        return self.trace_dispatch
-
-    def dispatch_exception(self, frame, arg):
-        return self.trace_dispatch
+        for profiler in self.profilers:
+            profiler.trace_return()
 
     def is_skipped(self, frame):
         if not fnmatch:
             return True
         while frame:
             module = frame.f_globals.get('__name__')
+            if not module:
+                return True
             for pattern in self.skip:
                 if fnmatch.fnmatch(module, pattern):
                     return True
@@ -159,7 +162,7 @@ class Debugger(object):
             'functionName': info.function,
             'location': location,
             'scopeChain': scope_chain}]
-        if frame.f_back:
+        if frame.f_back and frame.f_back is not self.source_frame:
             frames += self._extract_frames(frame.f_back)
         return frames
 
@@ -182,7 +185,7 @@ class Debugger(object):
             return
         if threading.current_thread().name == 'ChromeDebug':
             return
-        if not self.active:
+        if not self.breakpoints_active:
             return
         with debug_lock:
             if self.current_frame:
@@ -199,23 +202,35 @@ class Debugger(object):
         self.step_mode = None
         self.stop_module = None
         self.stop_lineno = None
-
-    def set_break(self, module, lineno):
-        self.breaks[module].add(lineno)
+        thread.debugger_resumed()
+        self.resume.set()
 
     def continue_to(self, module, lineno):
         self.step_mode = None
         self.stop_module = module
         self.stop_lineno = lineno
+        thread.debugger_resumed()
+        self.resume.set()
 
     def set_step(self, mode):
         self.step_mode = mode
         self.step_level = 0
         self.stop_module = None
         self.stop_lineno = None
+        thread.debugger_resumed()
+        self.resume.set()
 
-    def set_active(self, active):
-        self.active = active
+    def set_break(self, module, lineno):
+        self.breaks[module].add(lineno)
+
+    def set_breakpoints_active(self, active):
+        self.breakpoints_active = active
+
+    def attach_profiler(self, profiler):
+        self.profilers.add(profiler)
+
+    def detach_profiler(self, profiler):
+        self.profilers.remove(profiler)
 
     def clear_break(self, module, lineno):
         if module in self.breaks:
@@ -224,34 +239,13 @@ class Debugger(object):
         if not self.breaks[module]:
             del self.breaks[module]
 
+    def set_trace(self):
+        self.source_frame = sys._getframe(3)
+        sys.settrace(self.trace_dispatch)
 
-class ImportLoader(object):
-
-    def load_module(self, full_name):
-        module = sys.modules[full_name]
-        if module and not module in seen:
-            seen.add(full_name)
-            if thread:  # terminating?
-                thread.debugger_script_parsed(full_name)
-        return module
-
-
-class ImportFinder(object):
-
-    touched = None
-
-    def __init__(self):
-        self.touched = set()
-
-    def find_module(self, full_name, path=None):
-        if full_name in self.touched:
-            return
-        self.touched.add(full_name)
-        try:
-            __import__(full_name)
-        finally:
-            self.touched.remove(full_name)
-        return ImportLoader()
+    def stop_trace(self):
+        sys.settrace(None)
+        self.source_frame = None
 
 
 def get_script_source(scriptId):
@@ -265,23 +259,15 @@ def get_script_source(scriptId):
     except TypeError:
         return '"Built-in module"'
 
-debugger = None
+debugger = Debugger(skip=['chromedebug', 'chromedebug.*', 'ws4py.*'])
 
 
 def attach():
-    global debugger
-    sys.meta_path.insert(0, ImportFinder())
-    for name, module in sys.modules.iteritems():
-        if module:
-            seen.add(name)
-    debugger = Debugger(skip=['chromedebug', 'chromedebug.*', 'ws4py.*'])
-    sys.settrace(debugger.trace_dispatch)
-    threading.settrace(debugger.trace_dispatch)
+    debugger and debugger.set_trace()
 
 
 def detach():
-    sys.settrace(None)
-    threading.settrace(None)
+    debugger and debugger.stop_trace()
 atexit.register(detach)
 
 
@@ -294,23 +280,20 @@ def add_breakpoint(url, lineno):
         'locations': [{'scriptId': url, 'lineNumber': lineno}]}
 
 
-def evaluate_on_frame(frame_id, expression, group):
+def evaluate_on_frame(frame_id, expression):
     if not debugger:
         return
     try:
         obj = debugger.evaluate_on_frame(frame_id, expression)
-        return {'result': inspector.encode(obj, group=group)}
+        return {'result': inspector.encode(obj)}
     except Exception, e:
         return {
-            'result': inspector.encode(e, group=group),
+            'result': inspector.encode(e),
             'wasThrown': True}
 
 
 def get_state():
-    if not debugger:
-        return
-    info = debugger.get_pause_info()
-    return info
+    return debugger and debugger.get_pause_info()
 
 
 def remove_breakpoint(break_id):
@@ -321,46 +304,32 @@ def remove_breakpoint(break_id):
 
 
 def resume():
-    if not debugger:
-        return
-    thread.debugger_resumed()
-    debugger.set_continue()
-    debugger.resume.set()
+    debugger and debugger.set_continue()
 
 
 def continue_to(url, lineno):
-    if not debugger:
-        return
-    thread.debugger_resumed()
-    debugger.continue_to(url, lineno)
-    debugger.resume.set()
+    debugger and debugger.continue_to(url, lineno)
 
 
-def set_active(active):
-    if not debugger:
-        return
-    debugger.set_active(active)
+def set_breakpoints_active(active):
+    debugger and debugger.set_breakpoints_active(active)
+
+
+def attach_profiler(profiler):
+    debugger and debugger.attach_profiler(profiler)
+
+
+def detach_profiler(profiler):
+    debugger and debugger.detach_profiler(profiler)
 
 
 def step_into():
-    if not debugger:
-        return
-    thread.debugger_resumed()
-    debugger.set_step('into')
-    debugger.resume.set()
+    debugger and debugger.set_step('into')
 
 
 def step_over():
-    if not debugger:
-        return
-    thread.debugger_resumed()
-    debugger.set_step('over')
-    debugger.resume.set()
+    debugger and debugger.set_step('over')
 
 
 def step_out():
-    if not debugger:
-        return
-    thread.debugger_resumed()
-    debugger.set_step('out')
-    debugger.resume.set()
+    debugger and debugger.set_step('out')
