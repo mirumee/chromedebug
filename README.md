@@ -47,6 +47,12 @@ The debugger
 
 This should Just Work™.
 
+```python
+from chromedebug import debugger
+
+debugger.set_trace()
+```
+
 
 The profiler
 ------------

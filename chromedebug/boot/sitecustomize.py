@@ -9,5 +9,5 @@ if not parent_path in sys.path:
 from chromedebug import debugger
 from chromedebug import thread
 
-debugger.attach()
+#debugger.attach()
 thread.start()
