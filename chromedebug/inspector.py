@@ -42,13 +42,15 @@ def get_properties(object_id):
     return obj
 
 
-def save_properties(obj):
+def save_properties(obj, force=True):
     object_id = id(obj)
     if object_id in properties:
         return str(object_id)
     try:
         data = weakref.ref(obj)
     except:
+        data = None
+    if force or data is None:
         data = extract_properties(obj)
     properties[object_id] = data
     return str(object_id)
@@ -81,7 +83,8 @@ def encode(obj, preview=True):
     data = {'className': klass, 'type': typ, 'value': value}
     if preview:
         data['description'] = description
-    if typ == 'object' and not isinstance(obj, types.ModuleType):
+    data['objectId'] = None
+    if typ in ['object', 'function'] and not isinstance(obj, types.ModuleType):
         object_id = save_properties(obj)
         if object_id:
             data['objectId'] = object_id

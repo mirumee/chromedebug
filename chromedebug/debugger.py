@@ -308,9 +308,11 @@ def add_breakpoint(url, lineno):
         'locations': [{'scriptId': url, 'lineNumber': lineno}]}
 
 
-def evaluate_on_frame(frame_id, expression):
+def evaluate_on_frame(frame_id, expression, preview=False):
     try:
         obj = debugger.evaluate_on_frame(frame_id, expression)
+        if preview:
+            inspector.save_properties(obj, force=True)
         return {'result': inspector.encode(obj)}
     except Exception, e:
         return {

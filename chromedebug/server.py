@@ -47,8 +47,10 @@ class DebuggerWebSocket(WebSocket):
             if info:
                 self.debugger_paused(info)
         elif method == 'Debugger.evaluateOnCallFrame':
+            preview = params.get('generatePreview', False)
             result = debugger.evaluate_on_frame(
-                params.get('callFrameId'), params.get('expression'))
+                params.get('callFrameId'), params.get('expression'),
+                preview=preview)
             resp['result'] = result
         elif method == 'Debugger.getScriptSource':
             content = debugger.get_script_source(params.get('scriptId'))
@@ -75,6 +77,8 @@ class DebuggerWebSocket(WebSocket):
             msg = params.get('message')
             if msg:
                 sys.stderr.write('<< %s >>\n' % (msg,))
+        elif method == 'Page.enable':
+            resp['error'] = {}
         elif method == 'Profiler.start':
             profiler.start_profiling()
             self.send_event('Profiler.setRecordingProfile', isProfiling=True)
@@ -90,7 +94,16 @@ class DebuggerWebSocket(WebSocket):
             resp['result'] = {'profile': profile}
         elif method == 'Runtime.getProperties':
             object_id = params.get('objectId')
-            resp['result'] = {'result': inspector.get_properties(object_id)}
+            accessor = params.get('accessorPropertiesOnly', False)
+            if accessor:
+                resp['result'] = {'result': []}
+            else:
+                props = inspector.get_properties(object_id)
+                resp['result'] = {'result': list(props)}
+        else:
+            resp['error'] = {
+                'message': '%s not supported' % (method,),
+                'data': {}}
         return resp
 
     def debugger_paused(self, stack):
