@@ -165,7 +165,10 @@ class Debugger(object):
             frame = frame.f_back
         if not frame:
             return None
-        return eval(expression, frame.f_globals, frame.f_locals)
+        try:
+            return eval(expression, frame.f_globals, frame.f_locals)
+        except:
+            exec(expression, frame.f_globals, frame.f_locals)
 
     def get_pause_info(self):
         if not self.current_frame:
@@ -308,12 +311,12 @@ def add_breakpoint(url, lineno):
         'locations': [{'scriptId': url, 'lineNumber': lineno}]}
 
 
-def evaluate_on_frame(frame_id, expression, preview=False):
+def evaluate_on_frame(frame_id, expression, group=None, preview=False):
     try:
         obj = debugger.evaluate_on_frame(frame_id, expression)
-        if preview:
-            inspector.save_properties(obj, force=True)
-        return {'result': inspector.encode(obj)}
+        if group:
+            inspector.add_obj_to_group(obj, group)
+        return {'result': inspector.encode(obj, preview=preview)}
     except Exception, e:
         return {
             'result': inspector.encode(e),

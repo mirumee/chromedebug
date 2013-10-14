@@ -47,11 +47,17 @@ class DebuggerWebSocket(WebSocket):
             if info:
                 self.debugger_paused(info)
         elif method == 'Debugger.evaluateOnCallFrame':
+            expression = params.get('expression', '')
             preview = params.get('generatePreview', False)
+            object_group = params.get('objectGroup', None)
             result = debugger.evaluate_on_frame(
-                params.get('callFrameId'), params.get('expression'),
-                preview=preview)
+                params.get('callFrameId'), expression,
+                group=object_group, preview=preview)
             resp['result'] = result
+        elif method == 'Debugger.getFunctionDetails':
+            object_id = params.get('functionId')
+            props = inspector.get_function_details(object_id)
+            resp['result'] = {'details': props}
         elif method == 'Debugger.getScriptSource':
             content = debugger.get_script_source(params.get('scriptId'))
             resp['result'] = {'scriptSource': content}
@@ -92,14 +98,43 @@ class DebuggerWebSocket(WebSocket):
         elif method == 'Profiler.getCPUProfile':
             profile = profiler.get_profile(params.get('uid'))
             resp['result'] = {'profile': profile}
+        elif method == 'Runtime.callFunctionOn':
+            # hacks!
+            object_id = params.get('objectId')
+            body = params.get('functionDeclaration', '')
+            if body.startswith('function getCompletions(primitiveType)'):
+                obj = inspector.get_object(object_id)
+                props = inspector.extract_properties(obj)
+                props = dict((p['name'], True) for p in props)
+                resp['result'] = {
+                    'result': inspector.encode(props, by_value=True)}
+            elif body.startswith('function remoteFunction(arrayStr)'):
+                props = params.get('arguments')
+                if props:
+                    props = props[0].get('value')
+                if props:
+                    props = json.loads(props)
+                obj = inspector.get_object(object_id)
+                for prop in props:
+                    try:
+                        obj = getattr(obj, prop)
+                    except Exception:
+                        break
+                resp['result'] = {
+                    'result': inspector.encode(obj, by_value=True)}
+            else:
+                resp['error'] = {
+                    'message': '%s not supported' % (method,),
+                    'data': {}}
         elif method == 'Runtime.getProperties':
             object_id = params.get('objectId')
             accessor = params.get('accessorPropertiesOnly', False)
-            if accessor:
-                resp['result'] = {'result': []}
-            else:
-                props = inspector.get_properties(object_id)
-                resp['result'] = {'result': list(props)}
+            obj = inspector.get_object(object_id)
+            props = inspector.extract_properties(obj, accessors=accessor)
+            resp['result'] = {'result': list(props)}
+        elif method == 'Runtime.releaseObjectGroup':
+            object_group = params.get('objectGroup', None)
+            inspector.release_group(object_group)
         else:
             resp['error'] = {
                 'message': '%s not supported' % (method,),
